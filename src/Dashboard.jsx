@@ -13,93 +13,17 @@ import {
   Menu,
   CheckCircle,
   Filter,
+  Loader2,
 } from "lucide-react";
+import { supabase } from "./lib/supabase";
+import { cartService } from "./lib/cartService";
 
 const Dashboard = () => {
   const navigate = useNavigate();
 
   // State declarations
-  const [products] = useState([
-    {
-      id: 1,
-      name: "Insulated Tumbler",
-      feature: "Keeps drinks hot/cold for hours",
-      category: "Stainless",
-      price: 34.99,
-      color: "#2C3E50",
-      imageUrl:
-        "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&h=600&fit=crop",
-      sizes: ["12oz", "16oz", "20oz", "24oz"],
-      availableSizes: ["16oz", "20oz", "24oz"],
-      inStock: true,
-    },
-    {
-      id: 2,
-      name: "Travel Mug",
-      feature: "Leak-proof with ergonomic handle",
-      category: "Outdoor",
-      price: 42.99,
-      color: "#27AE60",
-      imageUrl:
-        "https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=600&h=600&fit=crop",
-      sizes: ["12oz", "16oz"],
-      availableSizes: ["12oz", "16oz"],
-      inStock: true,
-    },
-    {
-      id: 3,
-      name: "Sports Bottle",
-      feature: "BPA-free with carrying loop",
-      category: "Plastic",
-      price: 19.99,
-      color: "#3498DB",
-      imageUrl:
-        "https://images.unsplash.com/photo-1523362628745-0c100150b504?w=600&h=600&fit=crop",
-      sizes: ["24oz", "32oz", "40oz"],
-      availableSizes: ["24oz", "32oz"],
-      inStock: true,
-    },
-    {
-      id: 4,
-      name: "Double Wall Cup",
-      feature: "Premium ceramic-coated design",
-      category: "Stainless",
-      price: 29.99,
-      color: "#E74C3C",
-      imageUrl:
-        "https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=600&h=600&fit=crop",
-      sizes: ["8oz", "12oz", "16oz"],
-      availableSizes: ["12oz", "16oz"],
-      inStock: true,
-    },
-    {
-      id: 5,
-      name: "Camping Bottle",
-      feature: "Rugged with carabiner clip",
-      category: "Outdoor",
-      price: 39.99,
-      color: "#D35400",
-      imageUrl:
-        "https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=600&h=600&fit=crop",
-      sizes: ["32oz", "40oz", "64oz"],
-      availableSizes: ["32oz", "64oz"],
-      inStock: false,
-    },
-    {
-      id: 6,
-      name: "Reusable Tumbler",
-      feature: "Eco-friendly with bamboo lid",
-      category: "Plastic",
-      price: 14.99,
-      color: "#E84393",
-      imageUrl:
-        "https://images.unsplash.com/photo-1559056199-641a0ac8b55e?w=600&h=600&fit=crop",
-      sizes: ["16oz", "20oz"],
-      availableSizes: ["16oz", "20oz"],
-      inStock: true,
-    },
-  ]);
-
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [showBrandDropdown, setShowBrandDropdown] = useState(false);
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -112,24 +36,136 @@ const Dashboard = () => {
   const [selectedBrand, setSelectedBrand] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [showMobileFilters, setShowMobileFilters] = useState(false);
+  const [userId, setUserId] = useState(null);
+  const [error, setError] = useState(null);
 
   const brandDropdownRef = useRef(null);
   const categoryDropdownRef = useRef(null);
   const mobileMenuRef = useRef(null);
   const mobileFiltersRef = useRef(null);
 
-  // Brands and Categories data
-  const brands = ["HydroFlask", "Yeti", "Stanley", "Contigo", "CamelBak"];
-  const categories = ["Outdoor", "Stainless", "Plastic", "Accessories"];
+  // Fetch user and products
+  useEffect(() => {
+    fetchUserAndProducts();
+  }, []);
+
+  // Helper function to transform product data
+  const transformProductData = (product) => {
+    let sizes = ["12oz", "16oz", "20oz"];
+    let availableSizes = ["12oz", "16oz"];
+
+    try {
+      if (product.sizes && Array.isArray(product.sizes)) {
+        sizes = product.sizes;
+      }
+      if (product.available_sizes && Array.isArray(product.available_sizes)) {
+        availableSizes = product.available_sizes;
+      }
+    } catch (e) {
+      // Silently handle parse errors
+    }
+
+    const stock = parseInt(product.stock) || 0;
+    const inStock = product.status === "active" && stock > 0;
+
+    return {
+      id: product.id,
+      name: product.name || "Unnamed Product",
+      feature: product.description || "Premium tumbler",
+      category: product.category || "General",
+      price: parseFloat(product.price) || 0,
+      imageUrl:
+        product.image_url ||
+        "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&h=600&fit=crop",
+      sizes: sizes,
+      availableSizes: availableSizes,
+      inStock: inStock,
+      stock: stock,
+      brand: product.brand || "Generic",
+      status: product.status || "active",
+    };
+  };
+
+  const fetchUserAndProducts = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Get current user
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (user) {
+        setUserId(user.id);
+      }
+
+      // Fetch products from Supabase
+      const { data: productsData, error: fetchError } = await supabase
+        .from("products")
+        .select("*")
+        .eq("status", "active")
+        .order("created_at", { ascending: false });
+
+      if (fetchError) {
+        throw fetchError;
+      }
+
+      if (!productsData || productsData.length === 0) {
+        setProducts([]);
+        return;
+      }
+
+      const transformedProducts = productsData.map(transformProductData);
+      setProducts(transformedProducts);
+    } catch (err) {
+      setError("Failed to load products. Please try again.");
+      setProducts([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Refresh products function to update stock after cart operations
+  const refreshProducts = async () => {
+    try {
+      const { data: productsData, error: fetchError } = await supabase
+        .from("products")
+        .select("*")
+        .eq("status", "active")
+        .order("created_at", { ascending: false });
+
+      if (fetchError) {
+        return;
+      }
+
+      if (!productsData || productsData.length === 0) {
+        setProducts([]);
+        return;
+      }
+
+      const transformedProducts = productsData.map(transformProductData);
+      setProducts(transformedProducts);
+    } catch (err) {
+      // Silently handle errors
+    }
+  };
+
+  // Extract unique brands and categories from products
+  const brands = [...new Set(products.map((p) => p.brand).filter(Boolean))];
+  const categories = [
+    ...new Set(products.map((p) => p.category).filter(Boolean)),
+  ];
 
   // Filtered products based on selections
   const filteredProducts = products.filter((product) => {
+    if (selectedBrand && product.brand !== selectedBrand) return false;
+    if (selectedCategory && product.category !== selectedCategory) return false;
     if (
-      selectedBrand &&
-      !product.name.toLowerCase().includes(selectedBrand.toLowerCase())
+      searchQuery &&
+      !product.name.toLowerCase().includes(searchQuery.toLowerCase())
     )
       return false;
-    if (selectedCategory && product.category !== selectedCategory) return false;
     return true;
   });
 
@@ -183,6 +219,13 @@ const Dashboard = () => {
   };
 
   const openAddToCartModal = (product) => {
+    if (!userId) {
+      setNotificationMessage("Please login to add items to cart");
+      setShowNotification(true);
+      navigate("/login");
+      return;
+    }
+
     setSelectedProduct(product);
     setSelectedSize(product.availableSizes[0] || "");
     setQuantity(1);
@@ -202,22 +245,54 @@ const Dashboard = () => {
 
   const handleQuantityChange = (change) => {
     const newQuantity = quantity + change;
-    if (newQuantity >= 1 && newQuantity <= 20) {
+    const maxQuantity = Math.min(20, selectedProduct?.stock || 20);
+    if (newQuantity >= 1 && newQuantity <= maxQuantity) {
       setQuantity(newQuantity);
     }
   };
 
-  const handleAddToCart = () => {
+  const handleAddToCart = async () => {
     if (!selectedSize) {
       setNotificationMessage("Please select a size");
       setShowNotification(true);
       return;
     }
 
-    const message = `Added ${quantity}x ${selectedProduct.name} (${selectedSize}) to cart!`;
-    setNotificationMessage(message);
-    setShowNotification(true);
-    closeModal();
+    if (!userId) {
+      setNotificationMessage("Please login to add items to cart");
+      setShowNotification(true);
+      navigate("/login");
+      return;
+    }
+
+    // Check stock availability
+    const availableStock = parseInt(selectedProduct.stock) || 0;
+    if (availableStock < quantity) {
+      setNotificationMessage(`Only ${availableStock} items available in stock`);
+      setShowNotification(true);
+      return;
+    }
+
+    try {
+      // Add to cart using cartService
+      await cartService.addToCart(
+        userId,
+        selectedProduct.id, // productId
+        quantity, // quantity
+        selectedSize // size
+      );
+
+      const message = `Added to cart!`;
+      setNotificationMessage(message);
+      setShowNotification(true);
+      closeModal();
+
+      // Refresh product stock from server after successful cart addition
+      await refreshProducts();
+    } catch (error) {
+      setNotificationMessage("Failed to add item to cart");
+      setShowNotification(true);
+    }
   };
 
   const toggleMobileMenu = () => {
@@ -243,7 +318,17 @@ const Dashboard = () => {
   const clearFilters = () => {
     setSelectedBrand(null);
     setSelectedCategory(null);
+    setSearchQuery("");
     setShowMobileFilters(false);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      navigate("/");
+    } catch (error) {
+      // Handle logout error silently
+    }
   };
 
   return (
@@ -290,89 +375,93 @@ const Dashboard = () => {
               Shop
             </a>
 
-            {/* Brand Dropdown */}
-            <div className="relative" ref={brandDropdownRef}>
-              <button
-                className={`flex items-center gap-1 font-medium px-2 transition ${
-                  selectedBrand
-                    ? "text-blue-600"
-                    : "text-gray-600 hover:text-blue-600"
-                }`}
-                onClick={() => {
-                  setShowBrandDropdown(!showBrandDropdown);
-                  setShowCategoryDropdown(false);
-                }}
-              >
-                Brand{" "}
-                <ChevronDown
-                  size={16}
-                  className={showBrandDropdown ? "rotate-180 transition" : ""}
-                />
-              </button>
-              {showBrandDropdown && (
-                <div className="absolute top-full left-0 mt-1 w-48 bg-white rounded-lg shadow-xl border border-gray-200 py-2 animate-fadeIn">
-                  {brands.map((brand) => (
-                    <button
-                      key={brand}
-                      onClick={() => handleBrandSelect(brand)}
-                      className={`w-full text-left px-4 py-2 flex items-center justify-between transition-all ${
-                        selectedBrand === brand
-                          ? "bg-blue-50 text-blue-600"
-                          : "text-gray-600 hover:bg-gray-50 hover:text-blue-600"
-                      }`}
-                    >
-                      {brand}
-                      {selectedBrand === brand && (
-                        <Check size={16} className="text-blue-600" />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            {/* Brand Dropdown - Only show if we have brands */}
+            {brands.length > 0 && (
+              <div className="relative" ref={brandDropdownRef}>
+                <button
+                  className={`flex items-center gap-1 font-medium px-2 transition ${
+                    selectedBrand
+                      ? "text-blue-600"
+                      : "text-gray-600 hover:text-blue-600"
+                  }`}
+                  onClick={() => {
+                    setShowBrandDropdown(!showBrandDropdown);
+                    setShowCategoryDropdown(false);
+                  }}
+                >
+                  Brand{" "}
+                  <ChevronDown
+                    size={16}
+                    className={showBrandDropdown ? "rotate-180 transition" : ""}
+                  />
+                </button>
+                {showBrandDropdown && (
+                  <div className="absolute top-full left-0 mt-1 w-48 bg-white rounded-lg shadow-xl border border-gray-200 py-2 animate-fadeIn">
+                    {brands.map((brand) => (
+                      <button
+                        key={brand}
+                        onClick={() => handleBrandSelect(brand)}
+                        className={`w-full text-left px-4 py-2 flex items-center justify-between transition-all ${
+                          selectedBrand === brand
+                            ? "bg-blue-50 text-blue-600"
+                            : "text-gray-600 hover:bg-gray-50 hover:text-blue-600"
+                        }`}
+                      >
+                        {brand}
+                        {selectedBrand === brand && (
+                          <Check size={16} className="text-blue-600" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
-            {/* Category Dropdown */}
-            <div className="relative" ref={categoryDropdownRef}>
-              <button
-                className={`flex items-center gap-1 font-medium px-2 transition ${
-                  selectedCategory
-                    ? "text-blue-600"
-                    : "text-gray-600 hover:text-blue-600"
-                }`}
-                onClick={() => {
-                  setShowCategoryDropdown(!showCategoryDropdown);
-                  setShowBrandDropdown(false);
-                }}
-              >
-                Category{" "}
-                <ChevronDown
-                  size={16}
-                  className={
-                    showCategoryDropdown ? "rotate-180 transition" : ""
-                  }
-                />
-              </button>
-              {showCategoryDropdown && (
-                <div className="absolute top-full left-0 mt-1 w-48 bg-white rounded-lg shadow-xl border border-gray-200 py-2 animate-fadeIn">
-                  {categories.map((category) => (
-                    <button
-                      key={category}
-                      onClick={() => handleCategorySelect(category)}
-                      className={`w-full text-left px-4 py-2 flex items-center justify-between transition-all ${
-                        selectedCategory === category
-                          ? "bg-blue-50 text-blue-600"
-                          : "text-gray-600 hover:bg-gray-50 hover:text-blue-600"
-                      }`}
-                    >
-                      {category}
-                      {selectedCategory === category && (
-                        <Check size={16} className="text-blue-600" />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            {/* Category Dropdown - Only show if we have categories */}
+            {categories.length > 0 && (
+              <div className="relative" ref={categoryDropdownRef}>
+                <button
+                  className={`flex items-center gap-1 font-medium px-2 transition ${
+                    selectedCategory
+                      ? "text-blue-600"
+                      : "text-gray-600 hover:text-blue-600"
+                  }`}
+                  onClick={() => {
+                    setShowCategoryDropdown(!showCategoryDropdown);
+                    setShowBrandDropdown(false);
+                  }}
+                >
+                  Category{" "}
+                  <ChevronDown
+                    size={16}
+                    className={
+                      showCategoryDropdown ? "rotate-180 transition" : ""
+                    }
+                  />
+                </button>
+                {showCategoryDropdown && (
+                  <div className="absolute top-full left-0 mt-1 w-48 bg-white rounded-lg shadow-xl border border-gray-200 py-2 animate-fadeIn">
+                    {categories.map((category) => (
+                      <button
+                        key={category}
+                        onClick={() => handleCategorySelect(category)}
+                        className={`w-full text-left px-4 py-2 flex items-center justify-between transition-all ${
+                          selectedCategory === category
+                            ? "bg-blue-50 text-blue-600"
+                            : "text-gray-600 hover:bg-gray-50 hover:text-blue-600"
+                        }`}
+                      >
+                        {category}
+                        {selectedCategory === category && (
+                          <Check size={16} className="text-blue-600" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </nav>
         </div>
 
@@ -404,7 +493,7 @@ const Dashboard = () => {
           </button>
 
           <button
-            onClick={() => navigate("/")}
+            onClick={handleLogout}
             className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition text-sm"
           >
             <LogOut size={18} /> <span>Logout</span>
@@ -431,6 +520,19 @@ const Dashboard = () => {
         </div>
       </header>
 
+      {/* Error Message */}
+      {error && (
+        <div className="mx-4 mt-4 p-4 bg-red-50 border border-red-200 rounded-xl">
+          <p className="text-red-700">{error}</p>
+          <button
+            onClick={() => setError(null)}
+            className="mt-2 text-sm text-red-600 hover:text-red-800"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Mobile Filters Panel */}
       {showMobileFilters && (
         <div
@@ -449,56 +551,60 @@ const Dashboard = () => {
           <h3 className="text-lg font-semibold text-gray-800">Filters</h3>
           <button
             onClick={() => setShowMobileFilters(false)}
-            className="p-1 rounded hover:bg-gray-100"
+            className="p-1.5 rounded hover:bg-gray-100"
           >
             <X size={20} className="text-gray-500" />
           </button>
         </div>
 
         <div className="p-4 overflow-y-auto h-[calc(100%-80px)]">
-          <div className="mb-6">
-            <h4 className="font-semibold text-gray-700 mb-3">Brands</h4>
-            <div className="space-y-1">
-              {brands.map((brand) => (
-                <button
-                  key={brand}
-                  onClick={() => handleBrandSelect(brand)}
-                  className={`w-full text-left px-3 py-2 rounded flex items-center justify-between transition ${
-                    selectedBrand === brand
-                      ? "bg-blue-50 text-blue-600 border border-blue-200"
-                      : "text-gray-600 hover:bg-gray-50"
-                  }`}
-                >
-                  {brand}
-                  {selectedBrand === brand && (
-                    <Check size={16} className="text-blue-600" />
-                  )}
-                </button>
-              ))}
+          {brands.length > 0 && (
+            <div className="mb-6">
+              <h4 className="font-semibold text-gray-700 mb-3">Brands</h4>
+              <div className="space-y-1">
+                {brands.map((brand) => (
+                  <button
+                    key={brand}
+                    onClick={() => handleBrandSelect(brand)}
+                    className={`w-full text-left px-3 py-2 rounded flex items-center justify-between transition ${
+                      selectedBrand === brand
+                        ? "bg-blue-50 text-blue-600 border border-blue-200"
+                        : "text-gray-600 hover:bg-gray-50"
+                    }`}
+                  >
+                    {brand}
+                    {selectedBrand === brand && (
+                      <Check size={16} className="text-blue-600" />
+                    )}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
-          <div className="mb-6">
-            <h4 className="font-semibold text-gray-700 mb-3">Categories</h4>
-            <div className="space-y-1">
-              {categories.map((category) => (
-                <button
-                  key={category}
-                  onClick={() => handleCategorySelect(category)}
-                  className={`w-full text-left px-3 py-2 rounded flex items-center justify-between transition ${
-                    selectedCategory === category
-                      ? "bg-blue-50 text-blue-600 border border-blue-200"
-                      : "text-gray-600 hover:bg-gray-50"
-                  }`}
-                >
-                  {category}
-                  {selectedCategory === category && (
-                    <Check size={16} className="text-blue-600" />
-                  )}
-                </button>
-              ))}
+          {categories.length > 0 && (
+            <div className="mb-6">
+              <h4 className="font-semibold text-gray-700 mb-3">Categories</h4>
+              <div className="space-y-1">
+                {categories.map((category) => (
+                  <button
+                    key={category}
+                    onClick={() => handleCategorySelect(category)}
+                    className={`w-full text-left px-3 py-2 rounded flex items-center justify-between transition ${
+                      selectedCategory === category
+                        ? "bg-blue-50 text-blue-600 border border-blue-200"
+                        : "text-gray-600 hover:bg-gray-50"
+                    }`}
+                  >
+                    {category}
+                    {selectedCategory === category && (
+                      <Check size={16} className="text-blue-600" />
+                    )}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {(selectedBrand || selectedCategory) && (
             <button
@@ -529,7 +635,7 @@ const Dashboard = () => {
           <h3 className="text-lg font-semibold text-gray-800">Menu</h3>
           <button
             onClick={() => setIsMobileMenuOpen(false)}
-            className="p-1 rounded hover:bg-gray-100"
+            className="p-1.5 rounded hover:bg-gray-100"
           >
             <X size={20} className="text-gray-500" />
           </button>
@@ -581,10 +687,7 @@ const Dashboard = () => {
             <ShoppingCart size={18} /> Cart
           </button>
           <button
-            onClick={() => {
-              navigate("/");
-              setIsMobileMenuOpen(false);
-            }}
+            onClick={handleLogout}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-white border border-gray-200 hover:border-red-300 hover:text-red-600 transition text-sm"
           >
             <LogOut size={18} /> Logout
@@ -592,7 +695,7 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Hero Section - Compact */}
+      {/* Hero Section */}
       <section className="bg-gray-100 rounded-lg mx-3 my-6 p-10 md:p-16 lg:p-20 min-h-[400px] flex items-center">
         <div className="max-w-6xl mx-auto text-center w-full">
           <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-gray-900 mb-6">
@@ -609,7 +712,8 @@ const Dashboard = () => {
           </a>
         </div>
       </section>
-      {/* Main Content - Compact */}
+
+      {/* Main Content */}
       <div className="max-w-7xl mx-auto px-3 py-4 md:py-6">
         {/* Active Filters */}
         {(selectedBrand || selectedCategory) && (
@@ -646,82 +750,128 @@ const Dashboard = () => {
           </div>
         )}
 
-        {/* Products */}
+        {/* Products Section */}
         <section id="Shop" className="mb-5">
           <h2 className="text-2xl font-semibold text-gray-900 mb-4">
             Premium Tumblers
           </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredProducts.map((product) => (
-              <div
-                key={product.id}
-                className="bg-white border border-gray-200 rounded-xl overflow-hidden hover:shadow-lg hover:-translate-y-0.5 hover:border-blue-300 transition-all duration-300 flex flex-col h-[530px]"
+
+          {loading ? (
+            <div className="text-center py-12">
+              <Loader2 className="w-12 h-12 text-blue-600 animate-spin mx-auto mb-4" />
+              <p className="text-gray-600">Loading products...</p>
+            </div>
+          ) : products.length === 0 ? (
+            <div className="text-center py-12 bg-gray-50 rounded-xl">
+              <div className="mb-4">
+                <ShoppingCart className="w-16 h-16 text-gray-300 mx-auto" />
+              </div>
+              <p className="text-gray-500 text-lg mb-2">
+                No products available
+              </p>
+              <p className="text-gray-400 text-sm mb-4">
+                Check your database connection or add some products
+              </p>
+              <button
+                onClick={fetchUserAndProducts}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
               >
-                {/* Image Container - Larger */}
-                <div className="h-[280px] bg-gradient-to-br from-gray-50 to-gray-200 relative flex items-center justify-center p-2">
-                  <div className="w-full h-full flex items-center justify-center">
-                    <img
-                      src={product.imageUrl}
-                      alt={product.name}
-                      className="w-auto h-auto max-w-full max-h-full object-contain"
-                      onError={(e) => {
-                        e.target.style.display = "none";
-                        e.target.parentElement.style.background = product.color;
-                      }}
-                    />
+                Retry Loading
+              </button>
+            </div>
+          ) : filteredProducts.length === 0 ? (
+            <div className="text-center py-12 bg-gray-50 rounded-xl">
+              <p className="text-gray-500 text-lg mb-4">
+                No products match your filters
+              </p>
+              <button
+                onClick={clearFilters}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                Clear Filters
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredProducts.map((product) => (
+                <div
+                  key={product.id}
+                  className="bg-white border border-gray-200 rounded-xl overflow-hidden hover:shadow-lg hover:-translate-y-0.5 hover:border-blue-300 transition-all duration-300 flex flex-col h-[530px]"
+                >
+                  {/* Image Container */}
+                  <div className="h-[280px] bg-gradient-to-br from-gray-50 to-gray-200 relative flex items-center justify-center p-2">
+                    <div className="w-full h-full flex items-center justify-center">
+                      <img
+                        src={product.imageUrl}
+                        alt={product.name}
+                        className="w-auto h-auto max-w-full max-h-full object-contain"
+                        onError={(e) => {
+                          e.target.onerror = null;
+                          e.target.src =
+                            "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&h=600&fit=crop";
+                        }}
+                      />
+                    </div>
+                    <div className="absolute top-3 right-3 bg-blue-600 text-white px-2 py-1 rounded-full text-xs font-semibold shadow">
+                      {product.category}
+                    </div>
                   </div>
-                  <div className="absolute top-3 right-3 bg-blue-600 text-white px-2 py-1 rounded-full text-xs font-semibold shadow">
-                    {product.category}
-                  </div>
-                </div>
 
-                {/* Product Info - More space for button */}
-                <div className="p-4 flex flex-col flex-1">
-                  <h3 className="text-lg font-bold text-gray-900 mb-1 line-clamp-1">
-                    {product.name}
-                  </h3>
-                  <p className="text-sm text-gray-600 mb-3 flex-1 line-clamp-2">
-                    {product.feature}
-                  </p>
+                  {/* Product Info */}
+                  <div className="p-4 flex flex-col flex-1">
+                    <h3 className="text-lg font-bold text-gray-900 mb-1 line-clamp-1">
+                      {product.name}
+                    </h3>
+                    <p className="text-sm text-gray-600 mb-3 flex-1 line-clamp-2">
+                      {product.feature}
+                    </p>
 
-                  <div className="mb-3">
-                    <span className="text-xl font-extrabold text-blue-600">
-                      ${product.price.toFixed(2)}
-                    </span>
-                  </div>
+                    <div className="mb-3">
+                      <span className="text-xl font-extrabold text-blue-600">
+                        ${product.price.toFixed(2)}
+                      </span>
+                    </div>
 
-                  <div className="mb-3 flex items-center gap-2">
-                    <span
-                      className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                    <div className="mb-3 flex items-center gap-2">
+                      <span
+                        className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                          product.inStock
+                            ? "bg-green-100 text-green-700"
+                            : "bg-red-100 text-red-700"
+                        }`}
+                      >
+                        {product.inStock
+                          ? `In Stock (${product.stock})`
+                          : "Out of Stock"}
+                      </span>
+                      {product.stock > 0 && product.stock <= 10 && (
+                        <span className="px-2 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-700">
+                          Low Stock
+                        </span>
+                      )}
+                    </div>
+
+                    <p className="text-xs text-gray-500 mb-3">
+                      Available: {product.availableSizes.join(", ")}
+                    </p>
+
+                    <button
+                      onClick={() => openAddToCartModal(product)}
+                      disabled={!product.inStock}
+                      className={`w-full py-2.5 rounded-lg font-semibold flex items-center justify-center gap-2 transition-all mt-auto text-sm ${
                         product.inStock
-                          ? "bg-green-100 text-green-700"
-                          : "bg-red-100 text-red-700"
+                          ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white hover:from-blue-700 hover:to-blue-800 hover:shadow-md"
+                          : "bg-gray-200 text-gray-500 cursor-not-allowed"
                       }`}
                     >
-                      {product.inStock ? "In Stock" : "Out of Stock"}
-                    </span>
+                      <ShoppingCart size={16} />
+                      {product.inStock ? "Add to Cart" : "Out of Stock"}
+                    </button>
                   </div>
-
-                  <p className="text-xs text-gray-500 mb-3">
-                    Available: {product.availableSizes.join(", ")}
-                  </p>
-
-                  <button
-                    onClick={() => openAddToCartModal(product)}
-                    disabled={!product.inStock}
-                    className={`w-full py-2.5 rounded-lg font-semibold flex items-center justify-center gap-2 transition-all mt-auto text-sm ${
-                      product.inStock
-                        ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white hover:from-blue-700 hover:to-blue-800 hover:shadow-md"
-                        : "bg-gray-200 text-gray-500 cursor-not-allowed"
-                    }`}
-                  >
-                    <ShoppingCart size={16} />
-                    {product.inStock ? "Add to Cart" : "Out of Stock"}
-                  </button>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </section>
       </div>
 
@@ -754,6 +904,11 @@ const Dashboard = () => {
                     src={selectedProduct.imageUrl}
                     alt={selectedProduct.name}
                     className="w-full h-full object-contain"
+                    onError={(e) => {
+                      e.target.onerror = null;
+                      e.target.src =
+                        "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&h=600&fit=crop";
+                    }}
                   />
                 </div>
                 <div>
@@ -766,8 +921,20 @@ const Dashboard = () => {
                   <p className="text-xl font-extrabold text-blue-600">
                     ${selectedProduct.price.toFixed(2)}
                   </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Stock: {selectedProduct.stock} units
+                  </p>
                 </div>
               </div>
+
+              {/* Stock Warning */}
+              {selectedProduct.stock <= 10 && selectedProduct.inStock && (
+                <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <p className="text-sm text-yellow-700 font-medium">
+                    ⚠️ Only {selectedProduct.stock} items left in stock!
+                  </p>
+                </div>
+              )}
 
               {/* Size Selection */}
               <div className="mb-4">
@@ -821,12 +988,15 @@ const Dashboard = () => {
                   </span>
                   <button
                     onClick={() => handleQuantityChange(1)}
-                    disabled={quantity >= 20}
+                    disabled={quantity >= Math.min(20, selectedProduct.stock)}
                     className="w-9 h-9 rounded-lg border border-gray-200 flex items-center justify-center text-gray-600 hover:border-blue-500 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition"
                   >
                     <Plus size={16} />
                   </button>
                 </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Max: {Math.min(20, selectedProduct.stock)} units
+                </p>
               </div>
 
               {/* Total */}

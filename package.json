@@ -10,11 +10,15 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@stripe/react-stripe-js": "^5.4.1",
+    "@stripe/stripe-js": "^8.5.3",
+    "@supabase/supabase-js": "^2.86.2",
     "@tailwindcss/vite": "^4.1.17",
     "lucide-react": "^0.556.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.10.1",
+    "stripe": "^20.0.0",
     "tailwindcss": "^4.1.17"
   },
   "devDependencies": {
